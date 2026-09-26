@@ -46,4 +46,19 @@ class RateLimitPlugin(base_plugin.BasePlugin):
         #           f"Rate limit exceeded. Try again in {wait:.0f}s."
         #       )
         # 3. Else: append now, return None
-        raise NotImplementedError("Implement RateLimitPlugin.on_user_message_callback")
+        # raise NotImplementedError("Implement RateLimitPlugin.on_user_message_callback")
+        # Remove expired timestamps (older than window_seconds)
+        while window and now - window[0] > self.window_seconds:
+            window.popleft()
+
+        # If limit reached, block the request
+        if len(window) >= self.max_requests:
+            wait_time = self.window_seconds - (now - window[0])
+            self.blocked_count += 1
+            return self._block_response(
+                f"Rate limit exceeded. Try again in {wait_time:.0f} seconds."
+            )
+
+        # Allow request: add timestamp and return None
+        window.append(now)
+        return None

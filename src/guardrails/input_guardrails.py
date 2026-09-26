@@ -54,11 +54,23 @@ def detect_injection(user_input: str) -> InputStatus:
     INJECTION_PATTERNS = [
         # TODO: Add at least 5 regex patterns
         # Example:
-        # r"ignore (all )?(previous|above) instructions",
+        r"ignore\s+(all\s)?(previous|above)\s+instructions",
+        r"bỏ\s+qua\s+(mọi|tất\s+cả)\s+(hướng\s+dẫn|quy\s+tắc)",
+        r"you\s+are\s+now",
+        r"system\s+prompt",
+        r"reveal\s+(your|the\s+)?(internal\s+)?(instructions|prompt|password)",
+        r"pretend\s+you\s+are",
+        r"act\s+as\s+(a|an)?\s+unrestricted",
+        r"disregard\s+all\s+previous\s+instructions",
     ]
 
+    import unicodedata
+    clean_input = unicodedata.normalize("NFKC", user_input or "").translate(
+        str.maketrans("", "", "\u200b\u200c\u200d\ufeff\u2060")
+    )
+
     for pattern in INJECTION_PATTERNS:
-        if re.search(pattern, user_input, re.IGNORECASE):
+        if re.search(pattern, clean_input, re.IGNORECASE):
             return "BLOCK"
     return "ALLOW"
 
@@ -84,14 +96,24 @@ def topic_filter(user_input: str) -> InputStatus:
         ``"BLOCK"`` = chặn (off-topic hoặc topic cấm).
         ``"ALLOW"`` = cho qua (câu banking hợp lệ).
     """
-    input_lower = user_input.lower()
+    input_lower = (user_input or "").lower().strip()
+    if not input_lower:
+        return "BLOCK"
 
-    # TODO: Implement logic:
-    # 1. If input contains any blocked topic -> return "BLOCK"
-    # 2. If input doesn't contain any allowed topic -> return "BLOCK"
-    # 3. Otherwise -> return "ALLOW"
+    # 1. Check blocked topics first
+    for blocked_word in BLOCKED_TOPICS:
+        if blocked_word and blocked_word in input_lower:
+            return "BLOCK"
 
-    pass  # Replace with your implementation
+    # 2. Check if banking-related (ALLOWED_TOPICS from core.config + extra banking keywords)
+    allowed_keywords = set(ALLOWED_TOPICS) | {
+        "bank", "rate", "card", "save", "saving", "debit", "credit", "customer", "service"
+    }
+    has_allowed_topic = any(allowed in input_lower for allowed in allowed_keywords if allowed)
+    if not has_allowed_topic:
+        return "BLOCK"
+
+    return "ALLOW"
 
 
 # ============================================================
@@ -151,7 +173,13 @@ class InputGuardrailPlugin(base_plugin.BasePlugin):
         #    - If "BLOCK": increment blocked_count, return self._block_response("...")
         # 3. If both return "ALLOW": return None (let message through)
 
-        pass  # Replace with your implementation
+        if detect_injection(text) == "BLOCK":
+            self.blocked_count += 1
+            return self._block_response("Blocking injection.")
+        if topic_filter(text) == "BLOCK":
+            self.blocked_count += 1
+            return self._block_response("Blocking off-topic request.")
+        return None
 
 
 # ============================================================
